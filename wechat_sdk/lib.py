@@ -66,3 +66,34 @@ class XMLStore(object):
             node.parentNode.removeChild(node)
             if unlink:
                 node.unlink()
+
+
+def dict2xml(_dict):
+    xml_el_tpl = "<{tag}>{value}</{tag}>"
+    el_list = []
+
+    sorted_keys = sorted(_dict.keys())
+
+    for key in sorted_keys:
+        value = _dict.get(key)
+
+        if isinstance(value, (int, float, bool)):
+            value = str(value)
+
+        if type(value) == unicode:
+            value = value.encode('utf-8')
+        elif type(value) == str:
+            value = value.decode('utf-8').encode('utf-8')
+        else:
+            raise ValueError("not support type: %s" % type(value))
+
+        el_list.append(xml_el_tpl.format(tag=key, value=value))
+
+    return "<xml>\n" + "\n".join(el_list) + "\n</xml>"
+
+
+def xml2dict(xml_str):
+    xml = XMLStore(xml_str)
+
+    return xml.xml2dict
+

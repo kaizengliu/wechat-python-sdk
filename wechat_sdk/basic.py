@@ -4,7 +4,9 @@ import hashlib
 import requests
 import time
 import json
+import random
 import cgi
+import string
 from StringIO import StringIO
 
 from xml.dom import minidom
@@ -12,7 +14,7 @@ from xml.dom import minidom
 from .messages import MESSAGE_TYPES, UnknownMessage
 from .exceptions import ParseError, NeedParseError, NeedParamError, OfficialAPIError
 from .reply import TextReply, ImageReply, VoiceReply, VideoReply, MusicReply, Article, ArticleReply
-from .lib import disable_urllib3_warning, XMLStore
+from .lib import disable_urllib3_warning, XMLStore, xml2dict, dict2xml
 
 
 class WechatBasic(object):
@@ -21,24 +23,27 @@ class WechatBasic(object):
 
     仅包含官方 API 中所包含的内容, 如需高级功能支持请移步 ext.py 中的 WechatExt 类
     """
-    def __init__(self, token=None, appid=None, appsecret=None, partnerid=None,
-                 partnerkey=None, paysignkey=None, access_token=None, access_token_expires_at=None,
-                 jsapi_ticket=None, jsapi_ticket_expires_at=None, checkssl=False):
+    def __init__(self, memcache_client, token=None, appid=None, appsecret=None, partnerid=None, partnerkey=None, paysignkey=None, jsapi_ticket=None,
+                 jsapi_ticket_expires_at=None, checkssl=False, mch_id=None, api_key=None):
         """
+        :param memcache_client: memcache.Client对象
         :param token: 微信 Token
         :param appid: App ID
         :param appsecret: App Secret
         :param partnerid: 财付通商户身份标识, 支付权限专用
         :param partnerkey: 财付通商户权限密钥 Key, 支付权限专用
         :param paysignkey: 商户签名密钥 Key, 支付权限专用
-        :param access_token: 直接导入的 access_token 值, 该值需要在上一次该类实例化之后手动进行缓存并在此处传入, 如果不传入, 将会在需要时自动重新获取
-        :param access_token_expires_at: 直接导入的 access_token 的过期日期，该值需要在上一次该类实例化之后手动进行缓存并在此处传入, 如果不传入, 将会在需要时自动重新获取
         :param jsapi_ticket: 直接导入的 jsapi_ticket 值, 该值需要在上一次该类实例化之后手动进行缓存并在此处传入, 如果不传入, 将会在需要时自动重新获取
         :param jsapi_ticket_expires_at: 直接导入的 jsapi_ticket 的过期日期，该值需要在上一次该类实例化之后手动进行缓存并在此处传入, 如果不传入, 将会在需要时自动重新获取
         :param checkssl: 是否检查 SSL, 默认为 False, 可避免 urllib3 的 InsecurePlatformWarning 警告
+        :param mch_id: 微信支付分配的商户号
+        :param api_key: API密钥
+        :param memcache_client:
         """
         if not checkssl:
             disable_urllib3_warning()  # 可解决 InsecurePlatformWarning 警告
+
+        self.__client = memcache_client
 
         self.__token = token
         self.__appid = appid
@@ -47,12 +52,14 @@ class WechatBasic(object):
         self.__partnerkey = partnerkey
         self.__paysignkey = paysignkey
 
-        self.__access_token = access_token
-        self.__access_token_expires_at = access_token_expires_at
+        self.__access_token = None
+        self.__access_token_expires_at = None
         self.__jsapi_ticket = jsapi_ticket
         self.__jsapi_ticket_expires_at = jsapi_ticket_expires_at
         self.__is_parse = False
         self.__message = None
+        self.__mch_id = mch_id
+        self.__api_key = api_key
 
     def check_signature(self, signature, timestamp, nonce):
         """
@@ -270,9 +277,15 @@ class WechatBasic(object):
                 "secret": self.__appsecret,
             }
         )
+
         if override:
             self.__access_token = response_json['access_token']
             self.__access_token_expires_at = int(time.time()) + response_json['expires_in']
+
+            expires_in = int(response_json['expires_in'])
+            self.__client.set('access_token', self.__access_token, expires_in)
+            self.__client.set('access_token_expires_at', self.__access_token_expires_at, expires_in)
+
         return response_json
 
     def grant_jsapi_ticket(self, override=True):
@@ -839,10 +852,14 @@ class WechatBasic(object):
     def access_token(self):
         self._check_appid_appsecret()
 
-        if self.__access_token:
+        self.__access_token = self.__client.get('access_token')
+        self.__access_token_expires_at = self.__client.get('access_token_expires_at')
+
+        if self.__access_token and self.__access_token_expires_at:
             now = time.time()
             if self.__access_token_expires_at - now > 60:
                 return self.__access_token
+
         self.grant_token()
         return self.__access_token
 
@@ -999,4 +1016,228 @@ class WechatBasic(object):
             else:
                 v = self._transcoding(v)
             result.update({k: v})
+
         return result
+
+    def _check_mch_id(self):
+        """
+        检查商户号是否存在
+        :raises NeedParamError: mch_id参数没有在初始化的时候提供
+        """
+        if not self.__mch_id:
+            raise NeedParamError("Please provide mch_id parameters in the construction of class.")
+
+    def _check_api_key(self):
+        """
+        检查api_key是否存在
+        :raises NeedParamError: api_key参数没有在初始化的时候提供
+        """
+        if not self.__api_key:
+            raise NeedParamError("Please provide api_key parameters in the construction of class.")
+
+    @staticmethod
+    def _check_official_xml_error(json_data):
+        if "err_code" in json_data:
+            raise OfficialAPIError((u"{}: {}".format(json_data["err_code"], json_data["err_code_des"])).encode("utf-8"))
+
+        return_code = json_data.get("return_code")
+        if return_code.upper() != "SUCCESS":
+            raise OfficialAPIError((u"{}: {}".format(json_data["return_code"], json_data["return_msg"])).encode("utf-8"))
+
+    def _post_xml(self, url, data):
+        r = requests.request(
+            'POST',
+            url,
+            headers={'Content-Type': 'application/xml'},
+            data=dict2xml(data)
+        )
+
+        r.raise_for_status()
+
+        json_data = xml2dict(r.content)
+        self._check_official_xml_error(json_data)
+
+        return json_data
+
+    def generate_sign(self, _params):
+        """
+        获取请求参数签名. 微信官方解释: 在API调用时用来按照指定规则对您的请求参数进行签名，
+        服务器收到您的请求时会进行签名验证，既可以界定您的身份也可以防止其他人恶意篡改请求数据。
+        部分API单独使用API密钥签名进行安全加固，部分安全性要求更高的API会要求使用API密
+        钥签名和API证书同时进行安全加固
+        :param params 参数字典
+        :return 参数签名
+        """
+        self._check_api_key()
+
+        params = dict(_params)
+
+        # 去除空值字段
+        [(not _params.get(key)) and params.pop(key) for key in _params]
+
+        # 参数转URL键值对的格式字符串
+        sorted_keys = sorted(params.keys())
+        kv_list = []
+
+        for key in sorted_keys:
+            value = params.get(key)
+
+            if isinstance(value, (int, float, bool)):
+                value = str(value)
+
+            if type(value) == unicode:
+                value = value.encode('utf-8')
+            elif type(value) == str:
+                value = value.decode('utf-8').encode('utf-8')
+            else:
+                raise ValueError("not support type: %s" % type(value))
+
+            kv_list.append("=".join([key, value]))
+
+        # 拼接API_KEY
+        kv_list.append("key=%s" % self.__api_key)
+
+        # 取MD5、大写化
+        return hashlib.md5("&".join(kv_list)).hexdigest().upper()
+
+    @staticmethod
+    def generate_nonce_str():
+        return "".join(random.sample(string.digits + string.letters, 32))
+
+    def web_authorize_url(self, redirect_uri, scope="snsapi_base"):
+        """
+        如果用户在微信客户端中访问第三方网页，公众号可以通过微信网页授权机制，来获取用户基本信息，进而实现业务逻辑
+        详细说明：http://mp.weixin.qq.com/wiki/17/c0f37d5704f0b64713d5d2c37b468d75.html
+        :param redirect_uri: 授权后的跳转地址。以snsapi_base为scope发起的网页授权，
+                             是用来获取进入页面的用户的openid的，并且是静默授权并自动
+                             跳转到回调页的。用户感知的就是直接进入了回调页（往往是业务页面）
+        :param scope: 现在只使用snsapi_base
+        :return: 微信授权页的url
+        """
+        request = requests.Request(
+            method='GET',
+            url="https://open.weixin.qq.com/connect/oauth2/authorize#wechat_redirect",
+            params={
+                "appid": self.__appid,
+                "redirect_uri": redirect_uri,
+                "response_type": "code",
+                "scope": scope,
+                "state": 0
+            }
+        )
+
+        p = request.prepare()
+        return p.url
+
+    def web_authorize_access_token(self, code):
+        """
+        :param code: 通过微信网页授权得到的code, 根据此code可以获取access_token
+        :return: access_token,
+                 格式如下所示:
+                 {
+                   "access_token":"ACCESS_TOKEN",
+                   "expires_in":7200,
+                   "refresh_token":"REFRESH_TOKEN",
+                   "openid":"OPENID",
+                   "scope":"SCOPE",
+                   "unionid": "o6_bmasdasdsad6_2sgVt7hMZOPfL"
+                 }
+        """
+        return self._get(
+            url="https://api.weixin.qq.com/sns/oauth2/access_token",
+            params={
+                "appid": self.__appid,
+                "secret": self.__appsecret,
+                "code": code,
+                "grant_type": "authorization_code"
+            }
+        )
+
+    def unified_order(self, body, out_trade_no, total_fee, spbill_create_ip,
+                      notify_url, trade_type, detail=None, attach=None, fee_type=None,
+                      time_start=None, time_expire=None, goods_tag=None,
+                      product_id=None, openid=None):
+        """
+        :param body: 商品或支付单简要描述. String(32)
+        :param out_trade_no: 商户系统内部的订单号,32个字符内、可包含字母. String(32)
+        :param total_fee: 订单总金额，只能为整数. Int
+        :param spbill_create_ip:  APP和网页支付提交用户端ip，Native支付填调用微信支付API的机器IP. String(16)
+        :param notify_url: 接收微信支付异步通知回调地址. String=256
+        :param trade_type: 取值如下：JSAPI，NATIVE，APP，WAP. String(16)
+
+        # 可选参数
+        :param detail: 商品名称明细列表. String(8192)
+        :param attach: 附加数据，在查询API和支付通知中原样返回，该字段主要用于商户携带订单的自定义数据. String(127)
+        :param fee_type: 符合ISO 4217标准的三位字母代码，默认人民币：CNY
+        :param time_start: 订单生成时间，格式为yyyyMMddHHmmss，如2009年12月25日9点10分10秒表示为20091225091010
+        :param time_expire: 订单失效时间，格式为yyyyMMddHHmmss，如2009年12月27日9点10分10秒表示为20091227091010. 注意：最短失效时间间隔必须大于5分钟
+        :param goods_tag: 商品标记，代金券或立减优惠功能的参数. String(32)
+        :param product_id: rade_type=NATIVE，此参数必传。此id为二维码中包含的商品ID，商户自行定义. trade_type=NATIVE，此参数必传。此id为二维码中包含的商品ID，商户自行定义。
+        :param open_id: trade_type=JSAPI，此参数必传，用户在商户appid下的唯一标识。下单前需要调用. String(128)
+
+        参数及返回具体详情见官网文档 https://pay.weixin.qq.com/wiki/doc/api/jsapi.php?chapter=9_1
+
+        :return: 微信api返回值
+        """
+        self._check_appid_appsecret()
+
+        _params = locals()
+        params = dict(_params)
+
+        params.pop("self")
+        [(not _params.get(key)) and params.pop(key) for key in _params]
+        params.update({
+            "appid": self.__appid,
+            "mch_id": self.__mch_id,
+            "nonce_str": self.generate_nonce_str(),
+        })
+
+        # 添加签名
+        params["sign"] = self.generate_sign(params)
+
+        return self._post_xml(
+            'https://api.mch.weixin.qq.com/pay/unifiedorder',
+            params
+        )
+
+    def order_query(self, transaction_id='', out_trade_no=''):
+        """
+        :param transaction_id: 微信的订单号，优先使用, String(32)
+        :param out_trade_no: 商户系统内部的订单号，当没提供transaction_id时需要传这个。 1217752501201407033233368018
+
+        参数及返回具体详情见官网文档 https://pay.weixin.qq.com/wiki/doc/api/native.php?chapter=9_2
+        :return: 微信api返回值
+        """
+        if not transaction_id and not out_trade_no:
+            raise NeedParamError('transaction_id and out_trade_no at least be specified one')
+
+        params = {
+            "appid": self.__appid,
+            "mch_id": self.__mch_id,
+            "transaction_id": transaction_id,
+            "out_trade_no": out_trade_no,
+            "nonce_str": self.generate_nonce_str(),
+        }
+
+        params["sign"] = self.generate_sign(params)
+
+        return self._post_xml(
+            'https://api.mch.weixin.qq.com/pay/orderquery',
+            params
+        )
+
+    def check_weixin_pay_notify_data(self, data):
+        self._check_official_xml_error(data)
+
+    def generate_jsapi_pay_params(self, prepay_id):
+        params = {
+            "appId": self.__appid,
+            "timeStamp": str(int(time.time())),
+            "nonceStr": self.generate_nonce_str(),
+            "package": "prepay_id=%s" % prepay_id,
+            "signType": "MD5",
+        }
+
+        params["paySign"] = self.generate_sign(params)
+
+        return params
