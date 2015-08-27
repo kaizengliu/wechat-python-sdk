@@ -1,7 +1,7 @@
 微信公众平台 Python 开发包
 ===========================
 
-* 本开发包是在`wechat-python-sdk/ <https://github.com/doraemonext/wechat-python-sdk/>`_ 项目基础上构建的
+* 本开发包是在`wechat-python-sdk <https://github.com/doraemonext/wechat-python-sdk/>`_ 项目基础上构建的
 * wechat-python-sdk项目文档: `http://wechat-python-sdk.readthedocs.org/ <http://wechat-python-sdk.readthedocs.org/>`_
 * 添加或修改的功能如下:
 
@@ -13,7 +13,8 @@
 文档
 ----------------------------
  * 单例模式::
-   # wechat.py
+
+   # wechat.py文件
    import setting
    import memcache
 
