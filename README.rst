@@ -86,7 +86,7 @@
       jsapi_params = WeiXin.generate_jsapi_pay_params(prepay_id)
 
       # 将jsapi_params返回到前端(微信页面), 参照`微信支付文档<https://pay.weixin.qq.com/wiki/doc/api/jsapi.php?chapter=7_7>`_
-      # 调用微信支付js接口进行微信支付即可
+      # 调用微信支付js接口进行微信支付即可。支付成功后, notifiy_url会收到微信服务器的通知
 
 安装
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
