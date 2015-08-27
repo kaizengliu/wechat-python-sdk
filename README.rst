@@ -30,7 +30,7 @@
    # 存储access_token的接口，以兼容用mysql, redis, memcache, mongodb等方式存储access_token
 
  * 主要功能详情：`http://wechat-python-sdk.readthedocs.org/ <http://wechat-python-sdk.readthedocs.org/>`_
- * 网页授权::
+ * 网页授权, WechatBasic.web_authorize_url接口, 示例::
 
     from wechat import wechat
 
@@ -52,6 +52,8 @@
     }
 
     wechat.create_menu(menu_data)
+    # 生成菜单后，当用户点击"下单"时，order_url就会获得微信服务器传过来的code, order_url处理函数根据code
+    # 调用WechatBasic.web_authorize_access_token方法可以获取用户的open_id, unionid, 从而进行用户绑定等操作
 
  * 支付
    * 二维码支付::
