@@ -1,7 +1,7 @@
 微信公众平台 Python 开发包
 ===========================
 
-* 本开发包是在`wechat-python-sdk <https://github.com/doraemonext/wechat-python-sdk/>`_项目基础上构建的
+* 本开发包是在 `wechat-python-sdk <https://github.com/doraemonext/wechat-python-sdk/>` _项目基础上构建的
 * wechat-python-sdk项目文档: `http://wechat-python-sdk.readthedocs.org/ <http://wechat-python-sdk.readthedocs.org/>`_
 * 添加或修改的功能如下:
 
@@ -68,6 +68,7 @@
      # 将code_url返回到前端，用二维码生成工具生成二维码, 即可通过扫描二维码进行支付
      # 支付成功后, notifiy_url会收到微信服务器的通知
 
+
    * js支付::
 
      from wechat import wechat
@@ -77,7 +78,6 @@
         "超级电器", 10223434, 20000,
         "125.39.240.113", notify_url, 'JSAPI', '1232423423423')
      )
-
 
      prepay_id = wechat_ret.get("prepay_id")
      jsapi_params = WeiXin.generate_jsapi_pay_params(prepay_id)
