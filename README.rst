@@ -13,16 +13,16 @@
 文档
 ----------------------------
  * 单例模式, wechat.py文件::
+ 
+    import setting
+    import memcache
 
-   import setting
-   import memcache
+    from wechat_sdk import WechatBasic
 
-   from wechat_sdk import WechatBasic
+    memcache_client = memcache.Client(setting.MEMCACHED_MACHINES)
 
-   memcache_client = memcache.Client(setting.MEMCACHED_MACHINES)
-
-   wechat = WechatBasic(memcache_client, token=setting.token, appid=setting.WEIXIN_APP_ID,
-                     appsecret=setting.WEIXIN_APP_SECRET, mch_id=setting.WEIXIN_MCH_ID, api_key=setting.WEIXIN_API_KEY)
+    wechat = WechatBasic(memcache_client, token=setting.token, appid=setting.WEIXIN_APP_ID,
+                      appsecret=setting.WEIXIN_APP_SECRET, mch_id=setting.WEIXIN_MCH_ID, api_key=setting.WEIXIN_API_KEY)
 
    # 在需要使用微信功能的地方，从wechat引入wechat示例即可
    # 此外，如果需要更改access_token存储方式，可以写一个Wechat类继承WeChatBasic，重写__init__,
@@ -54,6 +54,7 @@
     wechat.create_menu(menu_data)
 
  * 支付
+ 
    * 二维码支付::
 
      from wechat import wechat
